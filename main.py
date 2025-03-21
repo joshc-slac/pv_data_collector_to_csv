@@ -3,21 +3,37 @@ from epics import caget
 import numpy as np
 import pandas as pd
 import time
-from threading import Value, Thread
+from multiprocessing import Value
+from threading import Thread
 from ctypes import c_bool
 import logging
+from functools import partial
 
 
 class DataCollector():
     def __init__(self):
-        self.power_meter_mv = "PF1K0:PPM:VOLT_RBV"
-        self.gmd_mJ = "GMD:PV"
-        self.x_gmd_mJ = "x_GMD:PV"
-        data = np.zeros((1000, 4))  # make arg parse-able
-        colums = ["Time", "PM", "GMD", "xGMD"]
-        self.df = pd.DataFrame(data, colums)
+        self.pv_dict = {
+            "ppm_keithly": "IM3L0:PPM:SPM:K2700:Reading",
+            "ppm_volt_rbv": "IM3L0:PPM:SPM:VOLT_RBV",
+            "gdet1": "GDET:FEE1:241:ENRC",
+            "gdet2": "GDET:FEE1:242:ENRC",
+            "gdet3": "GDET:FEE1:361:ENRC",
+            "gdet4": "GDET:FEE1:362:ENRC"
+        }
+
+        # Make space for PVs + Timestamp
+        self.data = np.zeros((1000, len(self.pv_dict)+1))
+        # Add time to column names
+        colums = list(self.pv_dict.keys())
+        colums.insert(0, "Time")
+
+        # Create dataframe
+        self.df = pd.DataFrame(data=self.data,
+                               columns=colums)
+        
+        # Worker related variables
         self.do_work = Value(c_bool, False)
-        self.thread = None
+        self.thread = Thread(target=self.work_func)
 
     def start_work(self):
         if (self.do_work.value):
@@ -40,22 +56,31 @@ class DataCollector():
     def work_func(self):
         idx = 0
         elapsed = 0
-        current_time = time.now()
+        current_time = time.time()
         while (self.do_work.value):
             loop_start = current_time
-            self.df[idx, "Time"] = current_time
-            self.df[idx, "PM"] = caget(self.power_meter_mv)
-            self.df[idx, "GMD"] = caget(self.gmd_mJ)
-            self.df[idx, "xGMD"] = caget(self.x_gmd_mJ)
+            self.data[idx, 0] = current_time
+            # iterate through keys
+            i = 1
+            for key, value in self.pv_dict.items():
+                self.data[idx, i] = caget(value)
+                i += 1
             idx += 1
 
-            current_time = time.now()
+            current_time = time.time()
             # wait till 100ms have elapsed
             while (elapsed < 0.1):
-                elapsed = time.now() - loop_start
+                elapsed = time.time() - loop_start
+
+
+def sigint_handler(signum, frame, obj):
+    obj.stop_work()
 
 
 if __name__ == "__main__":
     dc = DataCollector()
-    signal.signal(signal.SIGINT, dc.stop_work())
-    time.sleep(1)
+    dc.start_work()
+    signal.signal(signal.SIGINT, partial(sigint_handler, obj=dc))
+
+    while (dc.do_work.value):
+        time.sleep(1)
