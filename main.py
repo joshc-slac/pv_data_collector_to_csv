@@ -11,7 +11,7 @@ from functools import partial
 
 
 class DataCollector():
-    def __init__(self):
+    def __init__(self, run_time=60, sample_period_s=0.1):
         self.pv_dict = {
             "ppm_keithly": "IM3L0:PPM:SPM:K2700:Reading",
             "ppm_volt_rbv": "IM3L0:PPM:SPM:VOLT_RBV",
@@ -20,16 +20,15 @@ class DataCollector():
             "gdet3": "GDET:FEE1:361:ENRC",
             "gdet4": "GDET:FEE1:362:ENRC"
         }
+        self.run_time = run_time
+        self.sample_period_s = sample_period_s
+        self.num_samps = int(run_time * 1.0 / sample_period_s) + 1
 
         # Make space for PVs + Timestamp
-        self.data = np.zeros((1000, len(self.pv_dict)+1))
+        self.data = np.zeros((self.num_samps, len(self.pv_dict)+1))
         # Add time to column names
-        colums = list(self.pv_dict.keys())
-        colums.insert(0, "Time")
-
-        # Create dataframe
-        self.df = pd.DataFrame(data=self.data,
-                               columns=colums)
+        self.colums = list(self.pv_dict.keys())
+        self.colums.insert(0, "Time")
         
         # Worker related variables
         self.do_work = Value(c_bool, False)
@@ -55,11 +54,13 @@ class DataCollector():
 
     def work_func(self):
         idx = 0
-        elapsed = 0
-        current_time = time.time()
-        while (self.do_work.value):
+        start_time = time.time()
+        current_time = start_time
+        while (self.do_work.value and 
+               (current_time - start_time) < self.run_time):
             loop_start = current_time
-            self.data[idx, 0] = current_time
+            print(idx)
+            self.data[idx, 0] = current_time - start_time
             # iterate through keys
             i = 1
             for key, value in self.pv_dict.items():
@@ -67,10 +68,14 @@ class DataCollector():
                 i += 1
             idx += 1
 
-            current_time = time.time()
             # wait till 100ms have elapsed
-            while (elapsed < 0.1):
+            elapsed = 0
+            while (elapsed < self.sample_period_s):
                 elapsed = time.time() - loop_start
+            
+            current_time = time.time()
+
+        self.do_work.value = False
 
 
 def sigint_handler(signum, frame, obj):
@@ -78,9 +83,15 @@ def sigint_handler(signum, frame, obj):
 
 
 if __name__ == "__main__":
-    dc = DataCollector()
+    dc = DataCollector(60, 0.1)
     dc.start_work()
     signal.signal(signal.SIGINT, partial(sigint_handler, obj=dc))
 
     while (dc.do_work.value):
-        time.sleep(1)
+        time.sleep(.1)
+
+    logging.debug("Writing to df...")
+    # Create dataframe
+    df = pd.DataFrame(data=dc.data,
+                      columns=dc.colums)
+    df.to_csv("eggs.csv")

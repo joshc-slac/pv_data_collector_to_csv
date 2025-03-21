@@ -59,10 +59,9 @@ class MockIML20(PVGroup):
     async def ppm_keithly(self, instance, async_lib):
         while True:
             x = self.ppm_keithly.value + 1
-            print(x)
             await instance.write(value=x)
 
-            await async_lib.library.sleep(1)
+            await async_lib.library.sleep(.1)
 
 
 if __name__ == "__main__":
