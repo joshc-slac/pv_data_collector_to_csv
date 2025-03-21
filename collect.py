@@ -68,6 +68,8 @@ class DataCollector():
                 i += 1
             idx += 1
 
+            print(f"Sample: {idx} / {self.num_samps}")
+
             # wait till 100ms have elapsed
             elapsed = 0
             while (elapsed < self.sample_period_s):
@@ -93,6 +95,9 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--run_time_seconds",
                         type=float, default=60,
                         help="period over which to collect samples in seconds")
+    parser.add_argument("-p", "--precision", 
+                        type=int, default=6,
+                        help="specify floating point percision to be written to csv")
 
     args = parser.parse_args()
 
@@ -108,5 +113,5 @@ if __name__ == "__main__":
     df = pd.DataFrame(data=dc.data,
                       columns=dc.colums)
     df.to_csv(path_or_buf=args.file_name,
-              float_format="%.3f",
+              float_format=f"%.{args.precision}f",
               index=False)
